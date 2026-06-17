@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Camera</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<style>
+body{
+    margin:0;
+    background:#000;
+}
+video{
+    display:none;
+}
+</style>
+
+</head>
+
+<body>
+
+
+<video id="localVideo" autoplay muted playsinline></video>
+
+
+<!-- hidden elements required for JS -->
+<div style="display:none">
+
+<div id="setupScreen"></div>
+<div id="camScreen"></div>
+
+<div id="roomPill"></div>
+
+<div id="sRoom"></div>
+<div id="sStatus"></div>
+<div id="sViewers"></div>
+<div id="sUptime"></div>
+
+<div id="clock"></div>
+
+<div id="statusMsg"></div>
+<div id="dot"></div>
+
+<div id="errMsg"></div>
+
+</div>
+
+
+
+<script>
+
+
+const FIREBASE_CONFIG = {
+
+apiKey: "AIzaSyC7yd2CdX9uqlJsc7qygk2AhkI9xJOQj70",
+
+authDomain:"camera-47d67.firebaseapp.com",
+
+databaseURL:"https://camera-47d67-default-rtdb.firebaseio.com",
+
+projectId:"camera-47d67",
+
+storageBucket:"camera-47d67.firebasestorage.app",
+
+messagingSenderId:"982547074326",
+
+appId:"1:982547074326:web:7525f078e52c7b9e8d9437"
+
+};
+
+
+
+const RTC_CONFIG = {
+
+iceServers:[
+
+{
+urls:"stun:stun.l.google.com:19302"
+},
+
+{
+urls:"stun:stun1.l.google.com:19302"
+}
+
+]
+
+};
+
+
+
+firebase.initializeApp(FIREBASE_CONFIG);
+
+
+const db = firebase.database();
+
+
+
+// get room from URL
+// example:
+// camera.html?room=lab2
+
+const urlRoom =
+new URLSearchParams(location.search).get("room");
+
+
+if(urlRoom){
+
+initCamera(urlRoom);
+
+}
+
+
+
+
+
+let pc;
+
+let viewerICEQueue=[];
+
+let viewerICEReady=false;
+
+
+
+async function initCamera(room){
+
+
+
+// camera permission
+
+let stream;
+
+
+try{
+
+
+stream =
+await navigator.mediaDevices.getUserMedia({
+
+video:{
+
+facingMode:{
+ideal:"environment"
+},
+
+width:{
+ideal:1280
+},
+
+height:{
+ideal:720
+}
+
+},
+
+audio:true
+
+
+});
+
+
+}
+
+catch(e){
+
+console.log(e);
+
+return;
+
+}
+
+
+
+
+
+document.getElementById("localVideo").srcObject = stream;
+
+
+
+
+
+// remove old room
+
+await db.ref(`sv/${room}`).remove();
+
+
+
+
+
+// create peer
+
+pc =
+new RTCPeerConnection(RTC_CONFIG);
+
+
+
+
+
+stream.getTracks().forEach(track=>{
+
+pc.addTrack(track,stream);
+
+});
+
+
+
+
+
+
+// send camera ICE
+
+pc.onicecandidate = ({candidate})=>{
+
+
+if(candidate){
+
+db.ref(`sv/${room}/camICE`)
+.push(candidate.toJSON());
+
+
+}
+
+
+};
+
+
+
+
+
+
+
+// create offer
+
+
+const offer =
+await pc.createOffer();
+
+
+await pc.setLocalDescription(offer);
+
+
+
+
+
+await db.ref(`sv/${room}/offer`)
+.set({
+
+type:offer.type,
+
+sdp:offer.sdp
+
+});
+
+
+
+
+
+
+// get viewer answer
+
+
+db.ref(`sv/${room}/answer`)
+.on("value",async snap=>{
+
+
+const data=snap.val();
+
+
+if(!data) return;
+
+
+
+if(pc.currentRemoteDescription)
+return;
+
+
+
+await pc.setRemoteDescription(
+
+new RTCSessionDescription(data)
+
+);
+
+
+
+viewerICEReady=true;
+
+
+
+for(const c of viewerICEQueue){
+
+
+try{
+
+
+await pc.addIceCandidate(
+
+new RTCIceCandidate(c)
+
+);
+
+
+}
+
+catch(e){}
+
+
+}
+
+
+
+viewerICEQueue=[];
+
+
+});
+
+
+
+
+
+
+
+// receive viewer ICE
+
+
+db.ref(`sv/${room}/viewICE`)
+.on("child_added",async snap=>{
+
+
+const c=snap.val();
+
+
+if(!c)
+return;
+
+
+
+if(viewerICEReady){
+
+
+try{
+
+
+await pc.addIceCandidate(
+
+new RTCIceCandidate(c)
+
+);
+
+
+}
+
+catch(e){}
+
+
+
+}
+
+else{
+
+
+viewerICEQueue.push(c);
+
+
+}
+
+
+
+});
+
+
+
+console.log("Camera started room:",room);
+
+
+}
+
+
+
+
+</script>
+
+
+</body>
+</html>
