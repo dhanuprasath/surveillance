@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureView — Viewer</title>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --green: #22c55e; --red: #ef4444; --yellow: #eab308; --blue: #3b82f6;
+      --bg: #09090b; --surface: #18181b; --surface2: #27272a;
+      --border: #3f3f46; --text: #f4f4f5; --muted: #71717a;
+    }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100dvh; display: flex; flex-direction: column; }
+
+    /* ── Connect Screen ── */
+    #connectScreen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 24px; text-align: center; }
+    .icon { font-size: 64px; margin-bottom: 20px; }
+    h1 { font-size: 26px; font-weight: 700; margin-bottom: 8px; }
+    .sub { color: var(--muted); font-size: 14px; line-height: 1.7; margin-bottom: 32px; }
+    .field { width: 100%; max-width: 340px; margin-bottom: 14px; text-align: left; }
+    .field label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+    .field input { width: 100%; padding: 13px 16px; background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px; color: var(--text); font-size: 16px; outline: none; }
+    .field input:focus { border-color: var(--blue); }
+    .btn { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; max-width: 340px; padding: 14px; border-radius: 10px; font-size: 16px; font-weight: 600; border: none; cursor: pointer; }
+    .btn-primary { background: var(--blue); color: #fff; }
+    .btn-primary:active { opacity: .85; }
+    #errMsg { color: var(--red); font-size: 13px; margin-top: 14px; min-height: 20px; }
+
+    /* ── Viewer Screen ── */
+    #viewScreen { display: none; flex: 1; flex-direction: column; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; background: var(--surface); border-bottom: 1px solid var(--border); }
+    .logo { font-weight: 800; font-size: 16px; }
+    .logo span { color: var(--blue); }
+    .room-pill { background: rgba(59,130,246,.12); border: 1px solid rgba(59,130,246,.35); color: var(--blue); border-radius: 99px; padding: 4px 13px; font-size: 12px; font-weight: 600; }
+    .statusbar { display: flex; align-items: center; gap: 9px; padding: 8px 18px; font-size: 13px; background: var(--bg); border-bottom: 1px solid var(--border); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex-shrink: 0; transition: background .3s; }
+    .dot.searching { background: var(--yellow); animation: pulse 1.4s ease infinite; }
+    .dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    .dot.error { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .vid-wrap { flex: 1; background: #000; position: relative; overflow: hidden; min-height: 240px; display: flex; align-items: center; justify-content: center; }
+    #remoteVideo { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--muted); font-size: 14px; }
+    .placeholder .p-icon { font-size: 48px; opacity: .5; }
+    .spinner { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .vid-badge { position: absolute; top: 12px; left: 12px; background: rgba(34,197,94,.85); color: #fff; padding: 5px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; display: none; }
+    .vid-room { position: absolute; bottom: 12px; left: 12px; background: rgba(0,0,0,.65); padding: 4px 10px; border-radius: 6px; font-size: 12px; }
+    .vid-time { position: absolute; bottom: 12px; right: 12px; background: rgba(0,0,0,.65); padding: 4px 10px; border-radius: 6px; font-size: 12px; font-family: monospace; }
+
+    .stats { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border); }
+    .stat { padding: 14px 18px; background: var(--surface); border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .stat:nth-child(even) { border-right: none; }
+    .stat-l { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); margin-bottom: 4px; }
+    .stat-v { font-size: 20px; font-weight: 700; color: var(--blue); }
+
+    .disc-btn { margin: 12px 18px; padding: 11px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; color: var(--muted); font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════ CONNECT SCREEN ═══════════ -->
+<div id="connectScreen">
+  <div class="icon">🔍</div>
+  <h1>Surveillance Viewer</h1>
+  <p class="sub">Enter the room name set on the camera device to watch the live feed.</p>
+
+  <div class="field">
+    <label>Room Name</label>
+    <input id="roomIn" type="text" placeholder="e.g. lab1, corridor-a"
+           onkeydown="if(event.key==='Enter')connect()" />
+  </div>
+  <button class="btn btn-primary" onclick="connect()">📺 Connect</button>
+  <p id="errMsg"></p>
+</div>
+
+<!-- ═══════════ VIEWER SCREEN ═══════════ -->
+<div id="viewScreen">
+  <div class="topbar">
+    <div class="logo">🔒 <span>SecureView</span></div>
+    <div class="room-pill" id="roomPill">—</div>
+  </div>
+  <div class="statusbar">
+    <div class="dot searching" id="dot"></div>
+    <span id="statusMsg">Connecting to camera…</span>
+  </div>
+  <div class="vid-wrap" id="vidWrap">
+    <!-- Placeholder shown until stream arrives -->
+    <div class="placeholder" id="placeholder">
+      <div class="p-icon">📡</div>
+      <div class="spinner"></div>
+      <span>Waiting for camera stream…</span>
+    </div>
+    <video id="remoteVideo" autoplay playsinline style="display:none;"></video>
+    <div class="vid-badge" id="liveBadge">🟢 LIVE</div>
+    <div class="vid-room" id="vidRoom"></div>
+    <div class="vid-time" id="clock"></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-l">Room</div><div class="stat-v" id="sRoom">—</div></div>
+    <div class="stat"><div class="stat-l">Status</div><div class="stat-v" id="sStatus">—</div></div>
+    <div class="stat"><div class="stat-l">Quality</div><div class="stat-v" id="sQuality">—</div></div>
+    <div class="stat"><div class="stat-l">Duration</div><div class="stat-v" id="sDuration">00:00</div></div>
+  </div>
+  <div class="disc-btn" onclick="disconnect()">⏏ Disconnect</div>
+</div>
+
+<script>
+// ╔══════════════════════════════════════════════════════════╗
+// ║   STEP 1 — Paste same Firebase config as camera.html     ║
+// ╚══════════════════════════════════════════════════════════╝
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyC7yd2CdX9uqlJsc7qygk2AhkI9xJOQj70",
+  authDomain:        "camera-47d67.firebaseapp.com",
+  databaseURL:       "https://camera-47d67-default-rtdb.firebaseio.com",
+  projectId:         "camera-47d67",
+  storageBucket:     "camera-47d67.firebasestorage.app",
+  messagingSenderId: "982547074326",
+  appId:             "1:982547074326:web:7525f078e52c7b9e8d9437"
+};
+
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' }
+  ]
+};
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db = firebase.database();
+
+// Auto-connect if room is in URL  e.g. viewer.html?room=lab1
+const urlRoom = new URLSearchParams(location.search).get('room');
+if (urlRoom) { document.getElementById('roomIn').value = urlRoom; connect(); }
+
+function connect() {
+  const room = document.getElementById('roomIn').value.trim().toLowerCase().replace(/[^a-z0-9]/g, '-');
+  if (!room) { document.getElementById('errMsg').textContent = '⚠️ Please enter a room name'; return; }
+  history.replaceState({}, '', `?room=${room}`);
+  initViewer(room);
+}
+
+// ─── State ────────────────────────────────────────────────────
+let pc, remoteStream, camICEQueue = [], remoteReady = false, t0, timerID;
+
+async function initViewer(room) {
+  document.getElementById('connectScreen').style.display = 'none';
+  document.getElementById('viewScreen').style.display = 'flex';
+  document.getElementById('roomPill').textContent = '📍 ' + room;
+  document.getElementById('sRoom').textContent = room;
+  document.getElementById('vidRoom').textContent = '📍 ' + room;
+  setStatus('searching', 'Looking for camera in room: ' + room);
+
+  // ── 1. Clock ──────────────────────────────────────────────
+  setInterval(() => { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
+
+  // ── 2. Create peer connection ──────────────────────────────
+  pc = new RTCPeerConnection(RTC_CONFIG);
+  remoteStream = new MediaStream();
+
+  pc.ontrack = ({ track }) => {
+    remoteStream.addTrack(track);
+    const vid = document.getElementById('remoteVideo');
+    if (!vid.srcObject) vid.srcObject = remoteStream;
+
+    // Show video, hide placeholder
+    document.getElementById('placeholder').style.display = 'none';
+    vid.style.display = 'block';
+    document.getElementById('liveBadge').style.display = 'block';
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    if (s === 'connected') {
+      setStatus('live', '🟢 Live — receiving stream');
+      document.getElementById('sStatus').textContent = 'LIVE';
+      document.getElementById('sQuality').textContent = 'HD';
+      t0 = Date.now();
+      timerID = setInterval(() => {
+        const sec = Math.floor((Date.now() - t0) / 1000);
+        document.getElementById('sDuration').textContent =
+          `${String(Math.floor(sec/60)).padStart(2,'0')}:${String(sec%60).padStart(2,'0')}`;
+      }, 1000);
+    } else if (s === 'disconnected' || s === 'failed') {
+      setStatus('error', '❌ Camera disconnected');
+      document.getElementById('sStatus').textContent = 'Lost';
+      document.getElementById('liveBadge').style.display = 'none';
+      clearInterval(timerID);
+    } else if (s === 'connecting') {
+      setStatus('searching', 'Establishing connection…');
+    }
+  };
+
+  // ── 3. Send our ICE candidates ─────────────────────────────
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) db.ref(`sv/${room}/viewICE`).push(candidate.toJSON());
+  };
+
+  // ── 4. Watch for camera's SDP offer ───────────────────────
+  db.ref(`sv/${room}/offer`).on('value', async snap => {
+    const offer = snap.val();
+    if (!offer || pc.currentRemoteDescription) return;
+
+    try {
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await db.ref(`sv/${room}/answer`).set({ type: answer.type, sdp: answer.sdp });
+
+      // Flush queued ICE candidates
+      remoteReady = true;
+      for (const c of camICEQueue) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(_){} }
+      camICEQueue = [];
+      setStatus('searching', 'Answer sent — establishing stream…');
+      document.getElementById('sStatus').textContent = 'Connecting';
+    } catch (e) {
+      setStatus('error', '❌ Error: ' + e.message);
+    }
+  });
+
+  // ── 5. Receive camera ICE candidates ──────────────────────
+  db.ref(`sv/${room}/camICE`).on('child_added', async snap => {
+    const c = snap.val(); if (!c) return;
+    if (remoteReady) { try { await pc.addIceCandidate(new RTCIceCandidate(c)); } catch(_){} }
+    else camICEQueue.push(c);
+  });
+}
+
+function disconnect() {
+  if (pc) pc.close();
+  clearInterval(timerID);
+  history.replaceState({}, '', location.pathname);
+  location.reload();
+}
+
+function setStatus(state, msg) {
+  document.getElementById('statusMsg').textContent = msg;
+  document.getElementById('dot').className = 'dot ' + state;
+  document.getElementById('sStatus').textContent =
+    state === 'live' ? 'LIVE' : state === 'error' ? 'Error' : 'Connecting';
+}
+</script>
+</body>
+</html>
